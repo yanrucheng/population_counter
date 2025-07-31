@@ -8,6 +8,10 @@ export default defineConfig({
       index: './src/entry.tsx',
     },
   },
+  output: {
+    // Set this to your repository name for GitHub Pages subpage
+    assetPrefix: '/population_counter/',
+  },
   tools: {
     postcss: {
       postcssOptions: {
