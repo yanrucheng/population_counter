@@ -35,6 +35,7 @@
    - 在 "Source" 下拉菜单中选择 "GitHub Actions"
    - 保存设置
    - 如果这是第一次部署，可能需要几分钟时间来初始化Pages环境
+   - **重要**：确保在第一次部署前完成此步骤，否则Actions会因为没有权限而失败
 
 4. **自动部署**
    - 每次推送到 `main` 分支，GitHub Actions会自动构建并部署
@@ -93,27 +94,37 @@ npm run preview
 - 移动端使用时，建议添加到主屏幕以获得更好的体验
 
 ## 故障排除
-
 如果在部署到GitHub Pages时遇到问题，请检查以下几点：
 
 1. **确保已启用GitHub Actions和Pages**
    - 在仓库设置中确认GitHub Actions和Pages功能已启用
    - 确认Pages设置中选择了"GitHub Actions"作为源
 
-2. **首次部署可能需要更长时间**
+2. **检查GitHub Actions权限设置**
+   - 进入仓库的 Settings → Actions → General
+   - 在"Workflow permissions"部分选择"Read and write permissions"
+   - 确保勾选"Allow GitHub Actions to create and approve pull requests"
+
+3. **首次部署可能需要更长时间**
    - 第一次部署可能需要几分钟来初始化环境
    - 如果部署失败，请尝试重新运行工作流
 
-3. **检查分支名称**
-   - 确保代码推送到`main`分支以触发部署
+4. **检查分支名称**
+   - 确保代码推送到main分支以触发部署
    - 检查工作流文件中的分支配置是否正确
 
-4. **权限问题**
-   - 确保工作流文件包含正确的权限设置
+5. **权限问题**
+   - 确保工作流文件包含正确的权限设置（已更新为contents: write）
    - 确认GitHub Actions有权限写入Pages
 
-5. **构建问题**
-   - 确保`npm run build`命令能成功执行
+6. **构建问题**
+   - 确保npm run build命令能成功执行
    - 检查是否有足够的资源完成构建
+
+7. **手动触发部署**
+   - 如果自动部署失败，可以手动触发：
+     - 进入Actions标签页
+     - 选择Deploy to GitHub Pages工作流
+     - 点击"Run workflow"手动执行
 
 如果问题仍然存在，请查看GitHub Actions的详细日志以获取更多信息。
