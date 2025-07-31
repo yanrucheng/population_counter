@@ -12,11 +12,9 @@ interface PreferencesModalProps {
 }
 
 const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) => {
-  const { state, dispatch } = useCounter();
+  const { state, toggleCorrelateCounters } = useCounter();
 
   if (!isOpen) return null;
-
-  const { toggleCorrelateCounters } = useCounter();
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
