@@ -10,7 +10,7 @@ export default defineConfig({
   },
   output: {
     // Set this to your repository name for GitHub Pages subpage
-    assetPrefix: '/population_counter/',
+    assetPrefix: '/',
   },
   tools: {
     postcss: {
