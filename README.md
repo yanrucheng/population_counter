@@ -16,6 +16,10 @@
 
 ### 方法1：使用GitHub Actions自动部署（推荐）
 
+本项目已配置 GitHub Actions 自动部署到 GitHub Pages，使用官方推荐的部署方式。
+
+#### 启用GitHub Pages
+
 1. **创建GitHub仓库**
    - 在GitHub上创建一个新的仓库，命名为 `population_counter`
    - 不要初始化README，直接创建空仓库
@@ -30,16 +34,24 @@
    git push -u origin main
    ```
 
-3. **启用GitHub Pages**
+3. **启用GitHub Pages**（关键步骤）
    - 进入仓库的 Settings → Pages
-   - 在 "Source" 下拉菜单中选择 "GitHub Actions"
-   - 保存设置
+   - 在 "Build and deployment" 部分
+   - **Source**: 选择 "GitHub Actions"（不是 "Deploy from a branch"）
+   - 点击 **Save**
+   - 页面会显示 "Your site is ready to be published" 或类似提示
    - 如果这是第一次部署，可能需要几分钟时间来初始化Pages环境
-   - **重要**：确保在第一次部署前完成此步骤，否则Actions会因为没有权限而失败
+   - **关键步骤**：确保在第一次部署前完成此步骤，否则即使构建成功，页面也不会自动部署
 
-4. **自动部署**
-   - 每次推送到 `main` 分支，GitHub Actions会自动构建并部署
-   - 部署完成后，应用将可通过 `https://YOUR_USERNAME.github.io/population_counter/` 访问
+#### 部署流程
+
+我们使用 GitHub 官方推荐的部署方式，包含两个阶段：
+- **Build阶段**：构建项目并上传制品
+- **Deploy阶段**：将制品部署到 GitHub Pages
+
+#### 自动部署
+- 每次推送到 `main` 分支，GitHub Actions会自动构建并部署
+- 部署完成后，应用将可通过 `https://YOUR_USERNAME.github.io/population_counter/` 访问
 
 ### 方法2：手动部署
 
@@ -117,14 +129,41 @@ npm run preview
    - 确保工作流文件包含正确的权限设置（已更新为contents: write）
    - 确认GitHub Actions有权限写入Pages
 
-6. **构建问题**
-   - 确保npm run build命令能成功执行
-   - 检查是否有足够的资源完成构建
+#### 6.3 部署问题
 
-7. **手动触发部署**
-   - 如果自动部署失败，可以手动触发：
-     - 进入Actions标签页
-     - 选择Deploy to GitHub Pages工作流
-     - 点击"Run workflow"手动执行
+**问题**：GitHub Actions 构建成功但页面未更新
 
-如果问题仍然存在，请查看GitHub Actions的详细日志以获取更多信息。
+**解决方案**：
+1. 检查仓库的 **Settings → Pages** 中是否选择了 **GitHub Actions** 作为 Source
+2. 确保在 **Settings → Actions → General** 中启用了 "Read and write permissions"
+3. 检查构建日志是否有错误
+4. 等待几分钟，首次部署可能需要更长时间
+
+#### 6.4 找不到部署后的页面
+
+如果GitHub Pages设置正确但找不到页面：
+
+1. **访问地址**：`https://yanrucheng.github.io/population_counter/`
+2. **确认部署成功**：在仓库的 **Actions** 标签中查看最近的workflow运行状态
+   - 应该看到两个job：**build** 和 **deploy** 都成功完成
+3. **查看环境**：在仓库侧边栏的 **Environments** 中查看 `github-pages` 环境状态
+   - 应该显示绿色勾号 ✅ 和部署URL
+4. **等待时间**：首次部署可能需要5-10分钟
+
+#### 6.5 构建问题
+
+**问题**：`npm run build` 失败
+
+**解决方案**：
+1. 确保所有依赖已安装：`npm ci`
+2. 检查 `rsbuild.config.ts` 配置是否正确
+3. 查看构建日志获取具体错误信息
+
+#### 6.6 官方部署方式说明
+
+我们已更新为使用 GitHub 官方推荐的部署方式，包含：
+- `actions/configure-pages@v4`：配置Pages环境
+- `actions/upload-pages-artifact@v3`：上传构建产物
+- `actions/deploy-pages@v4`：执行部署
+
+这种分离式部署方式更安全、更可靠，符合GitHub最佳实践。
