@@ -1,8 +1,10 @@
-/**
- * State management for counter data
- * Handles counter values, localStorage persistence, and provides counter operations
- */
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+
+// Types
+export interface DemographicData {
+  gender: 'male' | 'female';
+  ageGroup: 'young' | 'young_adult' | 'mature';
+}
 
 export interface CounterData {
   passingBy: number;
@@ -11,25 +13,16 @@ export interface CounterData {
   buying: number;
 }
 
-export interface DemographicData {
-  gender: 'male' | 'female';
-  ageGroup: 'young' | 'young_adult' | 'mature';
-}
-
-export interface DetailedCounterData {
-  total: CounterData;
-  demographics: {
-    [key in keyof CounterData]: Array<DemographicData>;
+export interface CounterState {
+  counters: {
+    total: CounterData;
+    demographics: Record<keyof CounterData, DemographicData[]>;
   };
-}
-
-interface CounterState {
-  counters: DetailedCounterData;
-  sessionStartTime: number | null;
-  lastActivityTime: number | null;
   detailedMode: boolean;
   currentDemographic: DemographicData;
-  defaultDemographicIndex: number; // 0-5 for the 6 demographic combinations
+  defaultDemographicIndex: number;
+  sessionStartTime: number | null;
+  lastActivityTime: number | null;
   history: Array<{
     timestamp: number;
     type: keyof CounterData;
@@ -39,17 +32,23 @@ interface CounterState {
   }>;
 }
 
-type CounterAction = 
+// Action Types
+type CounterAction =
   | { type: 'INCREMENT'; counterType: keyof CounterData; demographic?: DemographicData }
   | { type: 'DECREMENT'; counterType: keyof CounterData }
+  | { type: 'RESET' }
   | { type: 'TOGGLE_DETAILED_MODE' }
   | { type: 'SET_CURRENT_DEMOGRAPHIC'; demographic: DemographicData }
   | { type: 'SET_DEFAULT_DEMOGRAPHIC_INDEX'; index: number }
-  | { type: 'RESET' }
-  | { type: 'LOAD_FROM_STORAGE'; data: CounterState }
+  | { type: 'LOAD_FROM_STORAGE'; data: Partial<CounterState> }
   | { type: 'START_SESSION' };
 
-const initialState: CounterState = {
+// Constants
+const STORAGE_KEY = 'population-counter-data';
+const MAX_HISTORY_ENTRIES = 1000;
+
+// Initial State Factory - creates fresh state
+const createInitialState = (): CounterState => ({
   counters: {
     total: {
       passingBy: 0,
@@ -62,271 +61,293 @@ const initialState: CounterState = {
       noticing: [],
       consulting: [],
       buying: [],
-    }
+    },
   },
-  sessionStartTime: null,
-  lastActivityTime: null,
   detailedMode: false,
   currentDemographic: {
     gender: 'female',
-    ageGroup: 'young_adult'
+    ageGroup: 'young_adult',
   },
-  defaultDemographicIndex: 1, // Default to female young_adult (index 1)
+  defaultDemographicIndex: 1,
+  sessionStartTime: null,
+  lastActivityTime: null,
   history: [],
+});
+
+// Utility Functions
+const calculateRate = (numerator: number, denominator: number): number => {
+  if (denominator === 0) return 0;
+  return (numerator / denominator) * 100;
 };
 
-const STORAGE_KEY = 'population-flow-counter';
+const limitArraySize = <T,>(array: T[], maxSize: number): T[] => {
+  return array.slice(-maxSize);
+};
 
-function counterReducer(state: CounterState, action: CounterAction): CounterState {
+// Counter Reducer
+const counterReducer = (state: CounterState, action: CounterAction): CounterState => {
   const now = Date.now();
-  
+
   switch (action.type) {
-    case 'START_SESSION':
-      return {
-        ...state,
-        sessionStartTime: state.sessionStartTime || now,
-        lastActivityTime: now,
+    case 'INCREMENT': {
+      const incrementMap: Record<keyof CounterData, (keyof CounterData)[]> = {
+        passingBy: ['passingBy'],
+        noticing: ['passingBy', 'noticing'],
+        consulting: ['passingBy', 'noticing', 'consulting'],
+        buying: ['passingBy', 'noticing', 'consulting', 'buying'],
       };
 
-    case 'TOGGLE_DETAILED_MODE':
+      const countersToIncrement = incrementMap[action.counterType];
+      const newCounters = { ...state.counters };
+      const newDemographics = { ...newCounters.demographics };
+      const demographic = action.demographic || state.currentDemographic;
+
+      countersToIncrement.forEach((counterType) => {
+        newCounters.total[counterType] += 1;
+        newDemographics[counterType] = [
+          ...newDemographics[counterType],
+          demographic,
+        ];
+      });
+
+      const newHistoryEntries = countersToIncrement.map((counterType) => ({
+        timestamp: now,
+        type: counterType,
+        value: newCounters.total[counterType],
+        action: 'increment' as const,
+        demographic,
+      }));
+
+      return {
+        ...state,
+        counters: {
+          total: newCounters.total,
+          demographics: newDemographics,
+        },
+        sessionStartTime: state.sessionStartTime || now,
+        lastActivityTime: now,
+        history: limitArraySize([...state.history, ...newHistoryEntries], MAX_HISTORY_ENTRIES),
+      };
+    }
+
+    case 'DECREMENT': {
+      const newCounters = { ...state.counters };
+      const currentCount = newCounters.total[action.counterType];
+
+      if (currentCount > 0) {
+        newCounters.total[action.counterType] -= 1;
+
+        const currentDemographics = newCounters.demographics[action.counterType];
+        if (currentDemographics.length > 0) {
+          newCounters.demographics = {
+            ...newCounters.demographics,
+            [action.counterType]: currentDemographics.slice(0, -1),
+          };
+        }
+      }
+
+      const newHistoryEntry = {
+        timestamp: now,
+        type: action.counterType,
+        value: Math.max(0, currentCount - 1),
+        action: 'decrement' as const,
+      };
+
+      return {
+        ...state,
+        counters: newCounters,
+        lastActivityTime: now,
+        history: limitArraySize([...state.history, newHistoryEntry], MAX_HISTORY_ENTRIES),
+      };
+    }
+
+    case 'RESET': {
+      // Complete reset - return fresh state
+      return createInitialState();
+    }
+
+    case 'TOGGLE_DETAILED_MODE': {
       return {
         ...state,
         detailedMode: !state.detailedMode,
       };
+    }
 
-    case 'SET_CURRENT_DEMOGRAPHIC':
+    case 'SET_CURRENT_DEMOGRAPHIC': {
       return {
         ...state,
         currentDemographic: action.demographic,
       };
-      
-    case 'SET_DEFAULT_DEMOGRAPHIC_INDEX':
+    }
+
+    case 'SET_DEFAULT_DEMOGRAPHIC_INDEX': {
       return {
         ...state,
         defaultDemographicIndex: action.index,
       };
+    }
 
-    case 'INCREMENT':
-      const incrementMap = {
-        passingBy: ['passingBy'],
-        noticing: ['passingBy', 'noticing'],
-        consulting: ['passingBy', 'noticing', 'consulting'],
-        buying: ['passingBy', 'noticing', 'consulting', 'buying']
-      };
-      
-      const countersToIncrement = incrementMap[action.counterType];
-      const newCounters = { ...state.counters };
-      
-      // Always use demographic data for tracking - both modes now record demographics
-      const useDemographic = action.demographic || state.currentDemographic;
-      
-      // Deep copy the demographics to avoid mutation
-      const newDemographics = { ...newCounters.demographics };
-      
-      // Increment total counters
-      countersToIncrement.forEach(counterType => {
-        newCounters.total[counterType as keyof CounterData] = newCounters.total[counterType as keyof CounterData] + 1;
-        
-        // Always add demographic data with proper immutable update
-        newDemographics[counterType as keyof CounterData] = [
-          ...newDemographics[counterType as keyof CounterData],
-          useDemographic
-        ];
-      });
-      
-      newCounters.demographics = newDemographics;
-      
-      const newHistoryEntries = countersToIncrement.map(counterType => ({
-        timestamp: now,
-        type: counterType as keyof CounterData,
-        value: newCounters.total[counterType as keyof CounterData],
-        action: 'increment' as const,
-        demographic: useDemographic,
-      }));
-      
-      return {
-        ...state,
-        counters: newCounters,
-        sessionStartTime: state.sessionStartTime || now,
-        lastActivityTime: now,
-        history: [
-          ...state.history,
-          ...newHistoryEntries,
-        ],
-      };
-    
-    case 'DECREMENT':
-      const newDecrementCounters = { ...state.counters };
-      const currentCount = newDecrementCounters.total[action.counterType];
-      
-      if (currentCount > 0) {
-        newDecrementCounters.total[action.counterType] = currentCount - 1;
-        
-        // Properly handle demographic array removal with immutable update
-        const currentDemographics = newDecrementCounters.demographics[action.counterType];
-        if (currentDemographics.length > 0) {
-          // Create new array without the last element (immutable)
-          newDecrementCounters.demographics = {
-            ...newDecrementCounters.demographics,
-            [action.counterType]: currentDemographics.slice(0, -1)
-          };
-        }
-      }
-      
-      return {
-        ...state,
-        counters: newDecrementCounters,
-        lastActivityTime: now,
-        history: [
-          ...state.history,
-          {
-            timestamp: now,
-            type: action.counterType,
-            value: Math.max(0, currentCount - 1),
-            action: 'decrement',
-          },
-        ],
-      };
-    
-    case 'RESET':
-      // Create a completely fresh state to ensure clean reset
-      const resetState = {
-        ...initialState,
-        detailedMode: state.detailedMode,
-        currentDemographic: state.currentDemographic,
-        defaultDemographicIndex: state.defaultDemographicIndex,
-        sessionStartTime: null, // Reset session time as well
-        lastActivityTime: null,
-      };
-      
-      return resetState;
-    
-    case 'LOAD_FROM_STORAGE':
-      // Enhanced backward compatibility handling
+    case 'LOAD_FROM_STORAGE': {
       const loadedData = action.data;
       
-      // Handle old data format (before demographic tracking)
-      let compatibleCounters;
-      if (loadedData.counters && typeof loadedData.counters.passingBy === 'number') {
-        // Old format: counters was just CounterData
-        compatibleCounters = {
-          total: loadedData.counters,
-          demographics: {
-            passingBy: [],
-            noticing: [],
-            consulting: [],
-            buying: [],
-          }
-        };
-      } else {
-        // New format or fallback
-        compatibleCounters = loadedData.counters || {
-          total: {
-            passingBy: 0,
-            noticing: 0,
-            consulting: 0,
-            buying: 0,
-          },
-          demographics: {
-            passingBy: [],
-            noticing: [],
-            consulting: [],
-            buying: [],
-          }
-        };
+      // Handle backward compatibility
+      let compatibleCounters = state.counters;
+      
+      if (loadedData.counters) {
+        if (typeof loadedData.counters.passingBy === 'number') {
+          // Old format: counters was just CounterData
+          compatibleCounters = {
+            total: loadedData.counters as CounterData,
+            demographics: {
+              passingBy: [],
+              noticing: [],
+              consulting: [],
+              buying: [],
+            },
+          };
+        } else {
+          // New format
+          compatibleCounters = loadedData.counters;
+        }
       }
 
       return {
+        ...createInitialState(),
         ...loadedData,
         counters: compatibleCounters,
-        detailedMode: loadedData.detailedMode || false,
-        currentDemographic: loadedData.currentDemographic || {
-          gender: 'female',
-          ageGroup: 'young_adult'
-        },
-        defaultDemographicIndex: loadedData.defaultDemographicIndex || 1,
-        history: loadedData.history || [],
       };
+    }
+
+    case 'START_SESSION': {
+      return {
+        ...state,
+        sessionStartTime: now,
+        lastActivityTime: now,
+      };
+    }
 
     default:
       return state;
   }
-}
+};
 
+// Context
 interface CounterContextType {
   state: CounterState;
   increment: (counterType: keyof CounterData, demographic?: DemographicData) => void;
   decrement: (counterType: keyof CounterData) => void;
+  reset: () => void;
   toggleDetailedMode: () => void;
   setCurrentDemographic: (demographic: DemographicData) => void;
   setDefaultDemographicIndex: (index: number) => void;
-  reset: () => void;
   exportData: () => void;
   exportCSV: () => void;
 }
 
 const CounterContext = createContext<CounterContextType | undefined>(undefined);
 
-export const CounterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [state, dispatch] = useReducer(counterReducer, initialState);
+// Storage Management
+const saveToStorage = (state: CounterState): void => {
+  try {
+    const stateString = JSON.stringify(state);
+    
+    if (stateString.length > 5 * 1024 * 1024) { // 5MB limit
+      console.warn('State too large for localStorage, truncating history...');
+      const truncatedState = {
+        ...state,
+        history: limitArraySize(state.history, 100),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(truncatedState));
+    } else {
+      localStorage.setItem(STORAGE_KEY, stateString);
+    }
+  } catch (error) {
+    console.error('Error saving to localStorage:', error);
+    
+    // Fallback: try with minimal state
+    try {
+      const minimalState = {
+        ...state,
+        history: [],
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(minimalState));
+    } catch (fallbackError) {
+      console.error('Failed to save even minimal state:', fallbackError);
+    }
+  }
+};
 
-  // Load data from localStorage on mount
-  useEffect(() => {
+const loadFromStorage = (): Partial<CounterState> | null => {
+  try {
     const savedData = localStorage.getItem(STORAGE_KEY);
+    return savedData ? JSON.parse(savedData) : null;
+  } catch (error) {
+    console.error('Error loading from localStorage:', error);
+    return null;
+  }
+};
+
+const clearStorage = (): void => {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (error) {
+    console.error('Error clearing localStorage:', error);
+  }
+};
+
+// Provider Component
+export const CounterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [state, dispatch] = useReducer(counterReducer, createInitialState());
+
+  // Load data on mount
+  useEffect(() => {
+    const savedData = loadFromStorage();
     if (savedData) {
-      try {
-        const parsedData = JSON.parse(savedData);
-        dispatch({ type: 'LOAD_FROM_STORAGE', data: parsedData });
-      } catch (error) {
-        console.error('Error loading saved data:', error);
-      }
+      dispatch({ type: 'LOAD_FROM_STORAGE', data: savedData });
     }
     dispatch({ type: 'START_SESSION' });
   }, []);
 
-  // Save data to localStorage whenever state changes
+  // Save data on changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    saveToStorage(state);
   }, [state]);
 
-  const increment = (counterType: keyof CounterData, demographic?: DemographicData) => {
+  // Action creators
+  const increment = useCallback((counterType: keyof CounterData, demographic?: DemographicData) => {
     dispatch({ type: 'INCREMENT', counterType, demographic });
-  };
+  }, []);
 
-  const decrement = (counterType: keyof CounterData) => {
+  const decrement = useCallback((counterType: keyof CounterData) => {
     dispatch({ type: 'DECREMENT', counterType });
-  };
+  }, []);
 
-  const toggleDetailedMode = () => {
-    dispatch({ type: 'TOGGLE_DETAILED_MODE' });
-  };
-
-  const setCurrentDemographic = (demographic: DemographicData) => {
-    dispatch({ type: 'SET_CURRENT_DEMOGRAPHIC', demographic });
-  };
-
-  const setDefaultDemographicIndex = (index: number) => {
-    dispatch({ type: 'SET_DEFAULT_DEMOGRAPHIC_INDEX', index });
-  };
-
-  const reset = () => {
+  const reset = useCallback(() => {
+    clearStorage();
     dispatch({ type: 'RESET' });
-  };
+  }, []);
 
-  const calculateRate = (numerator: number, denominator: number): number => {
-    if (denominator === 0) return 0;
-    return (numerator / denominator) * 100;
-  };
+  const toggleDetailedMode = useCallback(() => {
+    dispatch({ type: 'TOGGLE_DETAILED_MODE' });
+  }, []);
 
-  const exportData = () => {
+  const setCurrentDemographic = useCallback((demographic: DemographicData) => {
+    dispatch({ type: 'SET_CURRENT_DEMOGRAPHIC', demographic });
+  }, []);
+
+  const setDefaultDemographicIndex = useCallback((index: number) => {
+    dispatch({ type: 'SET_DEFAULT_DEMOGRAPHIC_INDEX', index });
+  }, []);
+
+  // Export functions
+  const exportData = useCallback(() => {
     const now = Date.now();
     const sessionDuration = state.sessionStartTime ? now - state.sessionStartTime : 0;
-    
-    // Calculate demographic statistics
+
     const demographicStats = Object.keys(state.counters.total).reduce((acc, key) => {
       const counterType = key as keyof CounterData;
       const demographics = state.counters.demographics[counterType];
-      
+
       acc[counterType] = {
         total: state.counters.total[counterType],
         byGender: {
@@ -337,12 +358,12 @@ export const CounterProvider: React.FC<{ children: React.ReactNode }> = ({ child
           young: demographics.filter(d => d.ageGroup === 'young').length,
           young_adult: demographics.filter(d => d.ageGroup === 'young_adult').length,
           mature: demographics.filter(d => d.ageGroup === 'mature').length,
-        }
+        },
       };
-      
+
       return acc;
-    }, {} as any);
-    
+    }, {} as Record<string, any>);
+
     const exportObject = {
       exportTimestamp: now,
       exportDate: new Date(now).toLocaleString('zh-CN'),
@@ -351,7 +372,7 @@ export const CounterProvider: React.FC<{ children: React.ReactNode }> = ({ child
         startDate: state.sessionStartTime ? new Date(state.sessionStartTime).toLocaleString('zh-CN') : null,
         lastActivityTime: state.lastActivityTime,
         lastActivityDate: state.lastActivityTime ? new Date(state.lastActivityTime).toLocaleString('zh-CN') : null,
-        sessionDuration: sessionDuration,
+        sessionDuration,
         sessionDurationFormatted: `${Math.floor(sessionDuration / 60000)}分${Math.floor((sessionDuration % 60000) / 1000)}秒`,
         detailedModeUsed: state.detailedMode,
       },
@@ -359,93 +380,87 @@ export const CounterProvider: React.FC<{ children: React.ReactNode }> = ({ child
       demographics: demographicStats,
       statistics: {
         noticeRate: calculateRate(state.counters.total.noticing, state.counters.total.passingBy),
-        consultationRate: calculateRate(state.counters.total.consulting, state.counters.total.noticing),
-        conversionRate: calculateRate(state.counters.total.buying, state.counters.total.consulting),
+        consultRate: calculateRate(state.counters.total.consulting, state.counters.total.noticing),
+        buyRate: calculateRate(state.counters.total.buying, state.counters.total.consulting),
         overallConversion: calculateRate(state.counters.total.buying, state.counters.total.passingBy),
-        totalInteractions: Object.values(state.counters.total).reduce((sum, count) => sum + count, 0),
       },
-      history: state.history.map(item => ({
-        ...item,
-        date: new Date(item.timestamp).toLocaleString('zh-CN'),
-      })),
-      rawData: state,
     };
 
     const blob = new Blob([JSON.stringify(exportObject, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `人流量统计_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
-    document.body.appendChild(a);
+    a.download = `人口统计导出_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
+  }, [state]);
 
-  const exportCSV = () => {
-    const headers = [
-      '时间戳',
-      '日期时间',
-      '操作类型',
-      '计数器类型',
-      '计数值',
-      '操作',
-      '性别',
-      '年龄组'
-    ];
+  const exportCSV = useCallback(() => {
+    const headers = ['阶段', '总数', '男性', '女性', '年轻人', '青年', '成熟', '转化率'];
+    const rows = Object.keys(state.counters.total).map((key) => {
+      const counterType = key as keyof CounterData;
+      const demographics = state.counters.demographics[counterType];
+      const total = state.counters.total[counterType];
+      
+      const male = demographics.filter(d => d.gender === 'male').length;
+      const female = demographics.filter(d => d.gender === 'female').length;
+      const young = demographics.filter(d => d.ageGroup === 'young').length;
+      const youngAdult = demographics.filter(d => d.ageGroup === 'young_adult').length;
+      const mature = demographics.filter(d => d.ageGroup === 'mature').length;
 
-    const rows = state.history.map(item => [
-      item.timestamp,
-      new Date(item.timestamp).toLocaleString('zh-CN'),
-      item.type,
-      item.type === 'passingBy' ? '路过' : 
-       item.type === 'noticing' ? '注意到店铺' : 
-       item.type === 'consulting' ? '咨询' : '购买',
-      item.value,
-      item.action === 'increment' ? '增加' : '减少',
-      item.demographic?.gender === 'male' ? '男性' :
-       item.demographic?.gender === 'female' ? '女性' : '未记录',
-      item.demographic?.ageGroup === 'young' ? '青少年及儿童(0-19)' :
-       item.demographic?.ageGroup === 'young_adult' ? '青年(20-35)' :
-       item.demographic?.ageGroup === 'mature' ? '中老年(36+)' : '未记录'
-    ]);
+      let conversionRate = '';
+      if (counterType === 'noticing') {
+        conversionRate = `${calculateRate(total, state.counters.total.passingBy).toFixed(1)}%`;
+      } else if (counterType === 'consulting') {
+        conversionRate = `${calculateRate(total, state.counters.total.noticing).toFixed(1)}%`;
+      } else if (counterType === 'buying') {
+        conversionRate = `${calculateRate(total, state.counters.total.consulting).toFixed(1)}%`;
+      }
 
-    const csvContent = [headers, ...rows]
-      .map(row => row.map(cell => `"${cell}"`).join(','))
-      .join('\n');
+      return [
+        counterType === 'passingBy' ? '路过' :
+        counterType === 'noticing' ? '注意' :
+        counterType === 'consulting' ? '咨询' : '购买',
+        total,
+        male,
+        female,
+        young,
+        youngAdult,
+        mature,
+        conversionRate,
+      ];
+    });
 
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `人流量统计_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
-    document.body.appendChild(a);
+    a.download = `人口统计_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }, [state]);
+
+  const contextValue: CounterContextType = {
+    state,
+    increment,
+    decrement,
+    reset,
+    toggleDetailedMode,
+    setCurrentDemographic,
+    setDefaultDemographicIndex,
+    exportData,
+    exportCSV,
   };
 
-  return (
-    <CounterContext.Provider value={{ 
-      state, 
-      increment, 
-      decrement, 
-      toggleDetailedMode, 
-      setCurrentDemographic, 
-      setDefaultDemographicIndex,
-      reset, 
-      exportData, 
-      exportCSV 
-    }}>
-      {children}
-    </CounterContext.Provider>
-  );
+  return <CounterContext.Provider value={contextValue}>{children}</CounterContext.Provider>;
 };
 
-export const useCounter = () => {
+// Custom hook for using counter context
+export const useCounter = (): CounterContextType => {
   const context = useContext(CounterContext);
-  if (context === undefined) {
-    throw new Error('useCounter must be used within a CounterProvider');
+  if (!context) {
+    throw new Error('useCounter must be used within CounterProvider');
   }
   return context;
 };
