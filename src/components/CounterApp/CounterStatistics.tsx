@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { useCounter } from './counterState';
-import { TrendingUp, Percent, Clock, Timer, Users, BarChart3 } from 'lucide-react';
+import { TrendingUp, Percent, Clock, Timer, Users, BarChart3, Link2, Unlink2 } from 'lucide-react';
 
 const CounterStatistics: React.FC = () => {
   const { state } = useCounter();
@@ -92,7 +92,22 @@ const CounterStatistics: React.FC = () => {
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-6">
-      <h2 className="text-xl font-semibold text-gray-800 mb-6">统计与洞察</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-semibold text-gray-800">统计与洞察</h2>
+        <div className="flex items-center space-x-2 text-sm">
+          {state.preferences.correlateCounters ? (
+            <>
+              <Link2 className="w-4 h-4 text-indigo-600" />
+              <span className="text-indigo-600 font-medium">关联模式</span>
+            </>
+          ) : (
+            <>
+              <Unlink2 className="w-4 h-4 text-gray-500" />
+              <span className="text-gray-500 font-medium">独立模式</span>
+            </>
+          )}
+        </div>
+      </div>
       
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 mb-6">

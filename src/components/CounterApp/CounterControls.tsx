@@ -2,14 +2,16 @@
  * Counter control buttons component
  * Renders individual counter buttons with increment/decrement functionality
  */
-import React from 'react';
+import React, { useState } from 'react';
 import { useCounter } from './counterState';
-import { Users, Eye, MessageCircle, ShoppingCart, RotateCcw, Download, FileSpreadsheet, Settings, Zap } from 'lucide-react';
+import { Users, Eye, MessageCircle, ShoppingCart, RotateCcw, Download, FileSpreadsheet, Settings, Zap, SlidersHorizontal } from 'lucide-react';
 import DraggableCounterButton from './DraggableCounterButton';
 import DefaultDemographicSelector from './DefaultDemographicSelector';
+import PreferencesModal from './PreferencesModal';
 
 const CounterControls: React.FC = () => {
   const { state, decrement, reset, exportData, exportCSV, toggleDetailedMode } = useCounter();
+  const [showPreferences, setShowPreferences] = useState(false);
 
   // Detect mobile device
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
@@ -49,22 +51,32 @@ const CounterControls: React.FC = () => {
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold text-gray-800">快速计数</h2>
-        <button
-          onClick={toggleDetailedMode}
-          className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
-            state.detailedMode 
-              ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          {state.detailedMode ? <Zap className="w-4 h-4" /> : <Settings className="w-4 h-4" />}
-          <span className="hidden sm:inline">
-            {state.detailedMode ? '切换到简化界面' : '切换到详细界面'}
-          </span>
-          <span className="sm:hidden">
-            {state.detailedMode ? '简化' : '详细'}
-          </span>
-        </button>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => setShowPreferences(true)}
+            className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 bg-purple-100 text-purple-700 hover:bg-purple-200"
+            title="偏好设置"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            <span className="hidden sm:inline">设置</span>
+          </button>
+          <button
+            onClick={toggleDetailedMode}
+            className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
+              state.detailedMode 
+                ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {state.detailedMode ? <Zap className="w-4 h-4" /> : <Settings className="w-4 h-4" />}
+            <span className="hidden sm:inline">
+              {state.detailedMode ? '简化界面' : '详细界面'}
+            </span>
+            <span className="sm:hidden">
+              {state.detailedMode ? '简化' : '详细'}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Description moved to top */}
@@ -132,6 +144,12 @@ const CounterControls: React.FC = () => {
           <span>重置所有计数器</span>
         </button>
       </div>
+
+      {/* Preferences Modal */}
+      <PreferencesModal 
+        isOpen={showPreferences} 
+        onClose={() => setShowPreferences(false)} 
+      />
     </div>
   );
 };

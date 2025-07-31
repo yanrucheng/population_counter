@@ -13,6 +13,10 @@ export interface CounterData {
   buying: number;
 }
 
+export interface Preferences {
+  correlateCounters: boolean; // Whether the 4 counter buttons are correlated
+}
+
 export interface CounterState {
   counters: {
     total: CounterData;
@@ -21,6 +25,7 @@ export interface CounterState {
   detailedMode: boolean;
   currentDemographic: DemographicData;
   defaultDemographicIndex: number;
+  preferences: Preferences;
   sessionStartTime: number | null;
   lastActivityTime: number | null;
   history: Array<{
@@ -38,6 +43,7 @@ type CounterAction =
   | { type: 'DECREMENT'; counterType: keyof CounterData }
   | { type: 'RESET' }
   | { type: 'TOGGLE_DETAILED_MODE' }
+  | { type: 'TOGGLE_CORRELATE_COUNTERS' }
   | { type: 'SET_CURRENT_DEMOGRAPHIC'; demographic: DemographicData }
   | { type: 'SET_DEFAULT_DEMOGRAPHIC_INDEX'; index: number }
   | { type: 'LOAD_FROM_STORAGE'; data: Partial<CounterState> }
@@ -69,6 +75,9 @@ const createInitialState = (): CounterState => ({
     ageGroup: 'young_adult',
   },
   defaultDemographicIndex: 1,
+  preferences: {
+    correlateCounters: false, // Default to false (independent counters)
+  },
   sessionStartTime: null,
   lastActivityTime: null,
   history: [],
@@ -90,14 +99,22 @@ const counterReducer = (state: CounterState, action: CounterAction): CounterStat
 
   switch (action.type) {
     case 'INCREMENT': {
-      const incrementMap: Record<keyof CounterData, (keyof CounterData)[]> = {
-        passingBy: ['passingBy'],
-        noticing: ['passingBy', 'noticing'],
-        consulting: ['passingBy', 'noticing', 'consulting'],
-        buying: ['passingBy', 'noticing', 'consulting', 'buying'],
-      };
+      let countersToIncrement: (keyof CounterData)[];
+      
+      if (state.preferences.correlateCounters) {
+        // Correlated behavior: each counter includes all previous stages
+        const incrementMap: Record<keyof CounterData, (keyof CounterData)[]> = {
+          passingBy: ['passingBy'],
+          noticing: ['passingBy', 'noticing'],
+          consulting: ['passingBy', 'noticing', 'consulting'],
+          buying: ['passingBy', 'noticing', 'consulting', 'buying'],
+        };
+        countersToIncrement = incrementMap[action.counterType];
+      } else {
+        // Independent behavior: only increment the specific counter
+        countersToIncrement = [action.counterType];
+      }
 
-      const countersToIncrement = incrementMap[action.counterType];
       const newCounters = { ...state.counters };
       const newDemographics = { ...newCounters.demographics };
       const demographic = action.demographic || state.currentDemographic;
@@ -173,6 +190,16 @@ const counterReducer = (state: CounterState, action: CounterAction): CounterStat
       };
     }
 
+    case 'TOGGLE_CORRELATE_COUNTERS': {
+      return {
+        ...state,
+        preferences: {
+          ...state.preferences,
+          correlateCounters: !state.preferences.correlateCounters,
+        },
+      };
+    }
+
     case 'SET_CURRENT_DEMOGRAPHIC': {
       return {
         ...state,
@@ -238,6 +265,7 @@ interface CounterContextType {
   decrement: (counterType: keyof CounterData) => void;
   reset: () => void;
   toggleDetailedMode: () => void;
+  toggleCorrelateCounters: () => void;
   setCurrentDemographic: (demographic: DemographicData) => void;
   setDefaultDemographicIndex: (index: number) => void;
   exportData: () => void;
@@ -329,6 +357,10 @@ export const CounterProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const toggleDetailedMode = useCallback(() => {
     dispatch({ type: 'TOGGLE_DETAILED_MODE' });
+  }, []);
+
+  const toggleCorrelateCounters = useCallback(() => {
+    dispatch({ type: 'TOGGLE_CORRELATE_COUNTERS' });
   }, []);
 
   const setCurrentDemographic = useCallback((demographic: DemographicData) => {
@@ -447,6 +479,7 @@ export const CounterProvider: React.FC<{ children: React.ReactNode }> = ({ child
     decrement,
     reset,
     toggleDetailedMode,
+    toggleCorrelateCounters,
     setCurrentDemographic,
     setDefaultDemographicIndex,
     exportData,
